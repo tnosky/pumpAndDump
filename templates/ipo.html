@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}IPO - freshmanPumpAndDump{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="panel-title">IPO allocation phase</div>
+  <p>Everyone gets the same starting opportunity. Submit your desired shares for each stock before trent closes the IPO.</p>
+  <p class="muted">Your requests are private. Other players only see aggregate demand after the IPO. Oversubscribed stocks are allocated proportionally.</p>
+  <div class="ipo-summary"><div><span>participants</span><strong>{{ ipo.participants }}</strong></div><div><span>submitted</span><strong>{{ ipo.submitted }} / {{ ipo.participants }}</strong></div><div><span>base price</span><strong>$0.100</strong></div><div><span>IPO window</span><strong>Aug 16 · 2–6 PM MDT</strong></div><div><span>time remaining</span><strong data-ipo-big-countdown>calculating...</strong></div><div><span>base market cap</span><strong>$30 / stock</strong></div></div>
+</section>
+<section class="panel">
+  <div class="panel-title">your requests</div>
+  <table class="mobile-card-table"><thead><tr><th>ticker</th><th>stock</th><th>requested</th><th>aggregate demand</th><th>shares available</th><th>update</th></tr></thead><tbody>
+  {% for stock in stocks %}
+  <tr>
+    <td data-label="ticker"><a href="{{ url_for('stock_page', ticker=stock.ticker) }}">{{ stock.ticker }}</a></td>
+    <td data-label="stock">{{ stock.name }}</td>
+    <td data-label="requested">{{ orders.get(stock.id, 0) }}</td>
+    <td data-label="aggregate demand">{{ demand[stock.id] }} / {{ stock.shares_outstanding }}</td>
+    <td data-label="shares available">{{ stock.shares_outstanding }}</td>
+    <td data-label="update"><form method="post" action="{{ url_for('ipo_order') }}" class="inline ipo-form"><input type="hidden" name="ticker" value="{{ stock.ticker }}"><input name="shares" type="number" min="0" max="50" step="1" value="{{ orders.get(stock.id, 0) }}"><button>save</button></form></td>
+  </tr>
+  {% endfor %}
+  </tbody></table>
+</section>
+<section class="panel">
+  <div class="panel-title">how it works</div>
+  <ol><li>Submit your share requests by 6:00 PM MDT on August 16.</li><li>Your requests stay private. Only total demand is visible.</li><li>Oversubscribed stocks are allocated proportionally.</li><li>At close, the final price is set and normal trading begins.</li><li>IPO payments move into the market pool, so no new money is created.</li></ol>
+</section>
+{% endblock %}

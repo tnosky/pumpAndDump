@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*.bak
+.env
+market.db
+instance/
+.vscode/
+.idea/
+.DS_Store

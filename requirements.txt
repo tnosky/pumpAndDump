@@ -1,0 +1,5 @@
+Flask-SocketIO==5.6.1
+Flask==3.1.1
+Flask-SQLAlchemy==3.1.1
+python-dotenv==1.1.1
+tzdata==2025.2

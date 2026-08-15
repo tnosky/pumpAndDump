@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111111">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <title>{% block title %}freshmanPumpAndDump{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body data-price-step="{{ price_step }}">
+  <header class="topbar">
+    <div class="brand"><a href="{{ url_for('dashboard') }}">freshmanPumpAndDump</a></div>
+    <nav>
+      {% if current_user %}
+      <a href="{{ url_for('dashboard') }}">home</a>
+      {% if market_phase == 'IPO' %}<a href="{{ url_for('ipo_page') }}">ipo</a>{% endif %}
+      <a href="{{ url_for('portfolio') }}">portfolio</a>
+      <a href="{{ url_for('leaderboard') }}">leaderboard</a>
+      {% if current_user.is_moderator %}<a href="{{ url_for('moderator') }}">moderator</a>{% endif %}
+      <a href="{{ url_for('logout') }}">logout</a>
+      {% endif %}
+    </nav>
+    {% if current_user %}
+    <div class="market-clock">
+      <span>market:</span>
+      <strong data-market-status class="{{ 'pos' if market_open else ('ipo-status' if market_phase == 'IPO' else 'neg') }}">{{ 'OPEN' if market_open else market_phase }}</strong>
+      <span data-market-countdown data-ipo-active="{{ 1 if ipo_active else 0 }}"></span>
+    </div>
+    {% endif %}
+  </header>
+  <div class="tickerbar" id="tickerbar" aria-label="market ticker">
+    {% for stock in stocks %}<a href="{{ url_for('stock_page', ticker=stock.ticker) }}">{{ stock.ticker }} {{ '%.3f'|format(stock.price) }}</a>{% endfor %}
+  </div>
+  <div id="trade-notice" class="trade-notice" aria-live="polite"></div>
+  <div id="trade-modal" class="trade-modal">
+    <div class="trade-modal-box">
+      <div class="panel-title">confirm trade</div>
+      <div class="trade-modal-title" data-trade-title></div>
+      <div class="trade-modal-detail muted" data-trade-detail></div>
+      <div class="trade-modal-actions"><button type="button" data-trade-confirm>confirm</button><button type="button" data-trade-cancel>cancel</button></div>
+    </div>
+  </div>
+  <main class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script src="{{ url_for('static', filename='site.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

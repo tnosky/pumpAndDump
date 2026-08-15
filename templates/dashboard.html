@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}home - freshmanPumpAndDump{% endblock %}
+{% block content %}
+<div class="toolbar panel"><div><strong>{{ 'ipo phase' if market_phase == 'IPO' else 'market overview' }}</strong><div class="muted">six stocks · 300 shares each · $30 base market cap · {{ 'IPO allocation in progress' if market_phase == 'IPO' else 'live updates' }}</div></div><div class="status-chip {{ 'open' if market_open else ('ipo' if market_phase == 'IPO' else 'closed') }}" data-market-status>{{ 'OPEN' if market_open else market_phase }}</div></div>
+{% if market_phase == 'IPO' %}
+<section class="panel ipo-banner"><div class="panel-title">initial public offering</div><div class="ipo-banner-row"><div><strong>Choose your initial share allocations before normal trading begins.</strong><div class="muted">Your requests stay private. At close, oversubscribed stocks are allocated proportionally and prices are set from demand.</div></div><a class="text-button" href="{{ url_for('ipo_page') }}">open IPO allocations</a></div><div class="ipo-progress"><span>{{ ipo.submitted }} / {{ ipo.participants }} users submitted</span><span>12 players × $15 = $180 total starting cash</span><span>6 stocks × $30 = $180 total base market cap</span><span id="ipo-countdown-label">IPO window: 2:00–6:00 PM MDT on August 16</span></div></section>
+{% endif %}
+<div class="grid-3">
+  <section class="panel wide">
+    <div class="panel-title">market</div>
+    <table id="market-table"><thead><tr><th>ticker</th><th>name</th><th>price</th><th>change</th><th>mkt cap</th><th>available</th></tr></thead><tbody>
+    {% for stock in stocks %}<tr>
+      <td><a href="{{ url_for('stock_page', ticker=stock.ticker) }}">{{ stock.ticker }}</a></td>
+      <td>{{ stock.name }}</td><td>${{ '%.3f'|format(stock.price) }}</td>
+      <td class="{{ 'pos' if stock.price >= 0.1 else 'neg' }}">{{ '%.2f'|format((stock.price-0.1)/0.1*100) }}%</td>
+      <td>${{ '%.2f'|format(stock.market_cap()) }}</td><td>{{ stock.shares_available() }}</td>
+    </tr>{% endfor %}
+    </tbody></table>
+  </section>
+  <section class="panel">
+    <div class="panel-title">account</div>
+    <div class="big-number" data-live-account="net_worth">${{ '%.2f'|format(current_user.net_worth()) }}</div>
+    <div>cash <span data-live-account="cash">${{ '%.2f'|format(current_user.cash) }}</span></div>
+    <div>invested <span data-live-account="invested">${{ '%.2f'|format(current_user.invested_value()) }}</span></div>
+    <div>return <span data-live-account="return_pct">{{ '%.2f'|format(current_user.total_return()) }}%</span></div>
+  </section>
+</div>
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-title">recent trades</div>
+    <table><thead><tr><th>user</th><th>side</th><th>shares</th><th>stock</th><th>price</th><th>total</th></tr></thead><tbody id="recent-trades-body">
+    {% for trade in recent_trades %}<tr><td>{{ trade.user.username }}</td><td class="{{ 'pos' if trade.side == 'BUY' else ('neg' if trade.side == 'SELL' else 'muted') }}">{{ trade.side }}</td><td>{{ trade.shares }}</td><td><a href="{{ url_for('stock_page', ticker=trade.stock.ticker) }}">{{ trade.stock.ticker }}</a></td><td>${{ '%.3f'|format(trade.price) }}</td><td>${{ '%.3f'|format(trade.total) }}</td></tr>{% else %}<tr><td colspan="6">no trades yet</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+  <section class="panel">
+    <div class="panel-title">leaderboard</div>
+    <table><thead><tr><th>#</th><th>user</th><th>net worth</th><th>cash</th><th>invested</th><th>return</th><th>realized</th><th>unrealized</th><th>trades</th></tr></thead><tbody id="leaderboard-body">
+    {% for user in leaderboard[:13] %}<tr><td>{{ loop.index }}</td><td><a href="{{ url_for('user_profile', username=user.username) }}">{{ user.username }}</a></td><td>${{ '%.2f'|format(user.net_worth()) }}</td><td>${{ '%.2f'|format(user.cash) }}</td><td>${{ '%.2f'|format(user.invested_value()) }}</td><td>{{ '%.2f'|format(user.total_return()) }}%</td><td>—</td><td>—</td><td>{{ user.trades|length }}</td></tr>{% else %}<tr><td colspan="9">no approved users yet</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+</div>
+{% endblock %}

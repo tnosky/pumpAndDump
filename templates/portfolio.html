@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}portfolio - freshmanPumpAndDump{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="panel-title">portfolio</div>
+  <div class="portfolio-summary">
+    <div><span class="muted">net worth</span><strong data-live-account="net_worth">${{ '%.2f'|format(stats.net_worth) }}</strong></div>
+    <div><span class="muted">cash</span><strong data-live-account="cash">${{ '%.2f'|format(stats.cash) }}</strong></div>
+    <div><span class="muted">invested</span><strong data-live-account="invested">${{ '%.2f'|format(stats.invested) }}</strong></div>
+    <div><span class="muted">return</span><strong data-live-account="return_pct">{{ '%.2f'|format(stats.return_pct) }}%</strong></div>
+  </div>
+</section>
+<section class="panel">
+  <div class="panel-title">portfolio history</div>
+  <div class="chart-wrap"><canvas id="portfolioChart"></canvas></div>
+</section>
+<section class="grid-2">
+  <section class="panel"><div class="panel-title">holdings</div>
+  <div class="table-scroll"><table id="portfolio-holdings"><thead><tr><th>stock</th><th>shares</th><th>avg cost</th><th>price</th><th>value</th><th>allocation</th><th>unrealized</th></tr></thead><tbody>
+  {% for h in allocation %}<tr><td><a href="{{ url_for('stock_page', ticker=h.ticker) }}">{{ h.ticker }}</a></td><td>{{ h.shares }}</td><td>${{ '%.3f'|format(h.avg_cost) }}</td><td>${{ '%.3f'|format(h.price) }}</td><td>${{ '%.2f'|format(h.value) }}</td><td>{{ '%.1f'|format(h.allocation) }}%</td><td class="{{ 'pos' if h.unrealized >= 0 else 'neg' }}">${{ '%.2f'|format(h.unrealized) }}</td></tr>{% else %}<tr><td colspan="7">no holdings</td></tr>{% endfor %}
+  </tbody></table></div></section>
+  <section class="panel"><div class="panel-title">performance</div><table><tbody><tr><td>realized gain</td><td class="{{ 'pos' if stats.realized >= 0 else 'neg' }}">${{ '%.2f'|format(stats.realized) }}</td></tr><tr><td>unrealized gain</td><td class="{{ 'pos' if stats.unrealized >= 0 else 'neg' }}">${{ '%.2f'|format(stats.unrealized) }}</td></tr><tr><td>total trades</td><td>{{ stats.trades }}</td></tr><tr><td>starting cash</td><td>${{ '%.2f'|format(user.starting_cash) }}</td></tr></tbody></table></section>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0"></script>
+<script>
+const portfolioPoints = {{ history|tojson }};
+const portfolioChart = new Chart(document.getElementById('portfolioChart'), {
+  type: 'line',
+  data: { labels: portfolioPoints.map(p => p.time), datasets: [{ data: portfolioPoints.map(p => p.value), borderWidth: 2, pointRadius: 0, tension: .1 }] },
+  options: {
+    animation: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `$${Number(ctx.raw).toFixed(2)}` } } },
+    scales: { x: { ticks: { color: '#999', maxTicksLimit: 10, maxRotation: 0 } }, y: { ticks: { color: '#999', callback: v => `$${Number(v).toFixed(2)}` } } }
+  }
+});
+</script>
+{% endblock %}

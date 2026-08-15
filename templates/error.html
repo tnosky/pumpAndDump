@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} - freshmanPumpAndDump{% endblock %}
+{% block content %}
+<section class="panel error-panel">
+  <div class="error-code">{{ code }}</div>
+  <h1>{{ title }}</h1>
+  <p class="muted">{{ message }}</p>
+  <a class="text-button" href="{{ url_for('dashboard') if current_user else url_for('login') }}">go back</a>
+</section>
+{% endblock %}

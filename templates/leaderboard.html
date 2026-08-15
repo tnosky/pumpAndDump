@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}leaderboard - freshmanPumpAndDump{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="panel-title">leaderboard</div>
+  <p class="muted">click a heading to sort. click again to reverse.</p>
+  <div class="table-scroll">
+  <table id="leaderboard" class="sortable-table">
+    <thead><tr>
+      <th data-sort="number">#</th><th data-sort="text">user</th><th data-sort="number">net worth</th><th data-sort="number">cash</th><th data-sort="number">invested</th><th data-sort="number">return %</th><th data-sort="number">realized</th><th data-sort="number">unrealized</th><th data-sort="number">trades</th>
+    </tr></thead>
+    <tbody id="leaderboard-body">
+    {% for user in users|sort(attribute='username') %}{% set s = stats[user.id] %}
+      <tr><td>{{ loop.index }}</td><td><a href="{{ url_for('user_profile', username=user.username) }}">{{ user.username }}</a></td><td>{{ '%.2f'|format(s.net_worth) }}</td><td>{{ '%.2f'|format(s.cash) }}</td><td>{{ '%.2f'|format(s.invested) }}</td><td>{{ '%.2f'|format(s.return_pct) }}%</td><td>{{ '%.2f'|format(s.realized) }}</td><td>{{ '%.2f'|format(s.unrealized) }}</td><td>{{ s.trades }}</td></tr>
+    {% else %}<tr><td colspan="9">no approved traders yet</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}
