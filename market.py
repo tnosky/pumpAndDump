@@ -119,8 +119,8 @@ def save_ipo_order(user, stock, shares):
         if now < start:
             return False, "The IPO has not opened yet. It opens August 16 at 2:00 PM MDT."
         return False, "The IPO phase ended at 4:00 PM MDT."
-    if shares < 0 or shares > 50:
-        return False, "IPO requests must be between 0 and 50 shares per stock."
+    if shares < 0:
+        return False, "IPO requests cannot be negative."
     order = IPOOrder.query.filter_by(user_id=user.id, stock_id=stock.id).first()
     if not order:
         order = IPOOrder(user_id=user.id, stock_id=stock.id, shares=shares)
