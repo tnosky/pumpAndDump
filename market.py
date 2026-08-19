@@ -1,8 +1,20 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from config import MARKET_TIMEZONE, MARKET_OPEN_HOUR, MARKET_CLOSE_HOUR, MIN_PRICE, PRICE_STEP
+from config import MARKET_TIMEZONE, MARKET_OPEN_HOUR, MARKET_CLOSE_HOUR, MIN_PRICE, PRICE_STEP, DAILY_SHARE_LIMIT
 from models import AuditLog, ClosedDate, Holding, PricePoint, Trade, db
+
+
+def open_hour(settings):
+    return settings.market_open_hour if settings and settings.market_open_hour is not None else MARKET_OPEN_HOUR
+
+
+def close_hour(settings):
+    return settings.market_close_hour if settings and settings.market_close_hour is not None else MARKET_CLOSE_HOUR
+
+
+def daily_limit(settings):
+    return settings.daily_share_limit if settings and settings.daily_share_limit else DAILY_SHARE_LIMIT
 
 
 def market_is_open(settings):
@@ -11,7 +23,36 @@ def market_is_open(settings):
     now = datetime.now(ZoneInfo(MARKET_TIMEZONE))
     if now.weekday() == 6 or ClosedDate.query.filter_by(day=now.date()).first():
         return False
-    return MARKET_OPEN_HOUR <= now.hour < MARKET_CLOSE_HOUR
+    return open_hour(settings) <= now.hour < close_hour(settings)
+
+
+def market_day_bounds(now=None):
+    """UTC datetime bounds for 'today' in the market's local timezone."""
+    tz = ZoneInfo(MARKET_TIMEZONE)
+    now = now or datetime.now(tz)
+    start_local = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    end_utc = end_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    return start_utc, end_utc
+
+
+def shares_bought_today(user_id, stock_id):
+    start_utc, end_utc = market_day_bounds()
+    total = db.session.query(db.func.coalesce(db.func.sum(Trade.shares), 0)).filter(
+        Trade.user_id == user_id,
+        Trade.stock_id == stock_id,
+        Trade.side == "BUY",
+        Trade.created_at >= start_utc,
+        Trade.created_at < end_utc,
+    ).scalar()
+    return total or 0
+
+
+def daily_remaining(user_id, stock_id, settings):
+    limit = daily_limit(settings)
+    bought = shares_bought_today(user_id, stock_id)
+    return max(0, limit - bought), limit
 
 
 def format_money(value):
@@ -45,8 +86,14 @@ def execute_trade(user, stock, side, shares, settings):
         holding.avg_cost = 0.0
 
     if side == "BUY":
-        if stock.shares_available() < shares:
-            return False, "There are not enough shares available."
+        bought_today = shares_bought_today(user.id, stock.id)
+        limit = daily_limit(settings)
+        if bought_today + shares > limit:
+            remaining = max(0, limit - bought_today)
+            return False, (
+                f"Daily purchase limit reached for {stock.ticker}: you can buy "
+                f"{remaining} more share(s) today (limit {limit}/day)."
+            )
         total = 0.0
         prices = []
         for _ in range(shares):

@@ -46,13 +46,13 @@ class Stock(db.Model):
     price_points = db.relationship("PricePoint", backref="stock", cascade="all, delete-orphan")
 
     def market_cap(self):
-        return self.price * self.shares_outstanding
+        # shares_outstanding is the original IPO baseline (300). Trading is
+        # uncapped now, so once real demand pushes the actual float past that
+        # baseline, market cap reflects the larger, real number of shares held.
+        return self.price * max(self.shares_outstanding, self.shares_held())
 
     def shares_held(self):
         return sum((h.shares or 0) for h in self.holdings)
-
-    def shares_available(self):
-        return self.shares_outstanding - self.shares_held()
 
     def volume(self):
         return sum(t.shares for t in self.trades)
@@ -98,6 +98,9 @@ class MarketSetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     market_enabled = db.Column(db.Boolean, default=True, nullable=False)
     note = db.Column(db.String(255), default="", nullable=False)
+    market_open_hour = db.Column(db.Integer, default=12, nullable=False)
+    market_close_hour = db.Column(db.Integer, default=20, nullable=False)
+    daily_share_limit = db.Column(db.Integer, default=50, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 

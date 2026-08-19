@@ -6,8 +6,18 @@ from flask import Flask, flash, jsonify, redirect, render_template, request, ses
 from sqlalchemy import desc
 
 from auth import current_user, login_required, moderator_required
-from config import MODERATOR_PASSWORD, MODERATOR_USERNAME, STOCK_SHARES, STOCK_START_PRICE, MARKET_TIMEZONE, PRICE_STEP
-from market import change_from_start, execute_trade, market_is_open
+from config import (
+    MODERATOR_PASSWORD,
+    MODERATOR_USERNAME,
+    STOCK_SHARES,
+    STOCK_START_PRICE,
+    MARKET_TIMEZONE,
+    PRICE_STEP,
+    MARKET_OPEN_HOUR,
+    MARKET_CLOSE_HOUR,
+    DAILY_SHARE_LIMIT,
+)
+from market import change_from_start, daily_remaining, execute_trade, market_is_open
 from analytics import stock_stats, user_holdings, user_realized_gain, user_stats, portfolio_history
 from models import AuditLog, Holding, MarketSetting, PricePoint, Stock, Trade, User, ClosedDate, db
 from extensions import socketio
@@ -34,9 +44,28 @@ STOCKS = [
 ]
 
 
+def _migrate_market_setting_columns():
+    """Add new market_setting columns to an existing market.db without wiping data."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(db.engine)
+    if "market_setting" not in inspector.get_table_names():
+        return
+    existing = {col["name"] for col in inspector.get_columns("market_setting")}
+    additions = {
+        "market_open_hour": f"INTEGER NOT NULL DEFAULT {MARKET_OPEN_HOUR}",
+        "market_close_hour": f"INTEGER NOT NULL DEFAULT {MARKET_CLOSE_HOUR}",
+        "daily_share_limit": f"INTEGER NOT NULL DEFAULT {DAILY_SHARE_LIMIT}",
+    }
+    with db.engine.begin() as conn:
+        for column, ddl in additions.items():
+            if column not in existing:
+                conn.execute(text(f"ALTER TABLE market_setting ADD COLUMN {column} {ddl}"))
+
+
 def seed():
     with app.app_context():
         db.create_all()
+        _migrate_market_setting_columns()
         if not MarketSetting.query.first():
             db.session.add(MarketSetting(market_enabled=True, note="Regular market hours"))
         if not User.query.filter_by(username=MODERATOR_USERNAME).first():
@@ -67,6 +96,7 @@ def inject_globals():
         "stocks": Stock.query.order_by(Stock.id).all(),
         "now": datetime.now(),
         "price_step": PRICE_STEP,
+        "market_timezone": MARKET_TIMEZONE,
     }
 
 
@@ -130,7 +160,17 @@ def stock_page(ticker):
     points = PricePoint.query.filter_by(stock_id=stock.id).order_by(PricePoint.created_at).all()
     recent_trades = Trade.query.filter_by(stock_id=stock.id).order_by(desc(Trade.created_at)).limit(30).all()
     stats = stock_stats(stock)
-    return render_template("stock.html", stock=stock, points=points, recent_trades=recent_trades, stats=stats)
+    settings = MarketSetting.query.first()
+    remaining, limit = daily_remaining(current_user().id, stock.id, settings)
+    return render_template(
+        "stock.html",
+        stock=stock,
+        points=points,
+        recent_trades=recent_trades,
+        stats=stats,
+        daily_remaining_shares=remaining,
+        daily_share_limit=limit,
+    )
 
 
 @app.route("/trade", methods=["POST"])
@@ -249,6 +289,30 @@ def moderator():
             db.session.add(AuditLog(actor_user_id=current_user().id, action="USER_UPDATED", details=user.username))
             db.session.commit()
             flash(f"Updated {user.username}.", "success")
+        elif action == "update_settings":
+            try:
+                new_open = int(request.form.get("market_open_hour", ""))
+                new_close = int(request.form.get("market_close_hour", ""))
+                new_limit = int(request.form.get("daily_share_limit", ""))
+            except ValueError:
+                flash("Market settings must be whole numbers.", "error")
+                return redirect(url_for("moderator"))
+            if not (0 <= new_open < new_close <= 24):
+                flash("Open hour must be less than close hour, both between 0 and 24.", "error")
+            elif new_limit < 1:
+                flash("Daily share limit must be at least 1.", "error")
+            else:
+                settings.market_open_hour = new_open
+                settings.market_close_hour = new_close
+                settings.daily_share_limit = new_limit
+                db.session.add(AuditLog(
+                    actor_user_id=current_user().id,
+                    action="SETTINGS_UPDATED",
+                    details=f"hours {new_open}:00-{new_close}:00, daily limit {new_limit}",
+                ))
+                db.session.commit()
+                socketio.emit("market_update", market_payload())
+                flash("Market settings updated.", "success")
         elif action == "add_closed_date":
             raw = request.form.get("closed_date", "")
             note = request.form.get("note", "").strip()

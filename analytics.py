@@ -75,7 +75,6 @@ def stock_stats(stock):
         "trades": len(trades),
         "high": stock.all_time_high(),
         "low": stock.all_time_low(),
-        "available": stock.shares_available(),
         "held": stock.shares_held(),
         "holder_count": sum(1 for h in stock.holdings if (h.shares or 0) > 0),
         "buy_shares": buy_shares,

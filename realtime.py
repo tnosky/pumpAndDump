@@ -4,8 +4,8 @@ from zoneinfo import ZoneInfo
 from flask import session
 
 from extensions import socketio
-from config import MARKET_OPEN_HOUR, MARKET_CLOSE_HOUR, MARKET_TIMEZONE
-from market import change_from_start, market_is_open
+from config import MARKET_TIMEZONE
+from market import change_from_start, close_hour, daily_remaining, market_is_open, open_hour
 from models import ClosedDate, MarketSetting, Stock, Trade, User
 from analytics import stock_stats, user_holdings, user_stats
 
@@ -17,11 +17,12 @@ def market_timing(settings):
     if not settings or not settings.market_enabled:
         return {"label": "MANUALLY CLOSED", "next_change": None}
 
-    if now.weekday() != 6 and now.date() not in closed and MARKET_OPEN_HOUR <= now.hour < MARKET_CLOSE_HOUR:
-        next_change = now.replace(hour=MARKET_CLOSE_HOUR, minute=0, second=0, microsecond=0)
+    o_hour, c_hour = open_hour(settings), close_hour(settings)
+    if now.weekday() != 6 and now.date() not in closed and o_hour <= now.hour < c_hour:
+        next_change = now.replace(hour=c_hour, minute=0, second=0, microsecond=0)
         return {"label": "OPEN", "next_change": next_change.isoformat()}
 
-    candidate = now.replace(hour=MARKET_OPEN_HOUR, minute=0, second=0, microsecond=0)
+    candidate = now.replace(hour=o_hour, minute=0, second=0, microsecond=0)
     if now >= candidate:
         candidate = candidate + timedelta(days=1)
     while candidate.weekday() == 6 or candidate.date() in closed:
@@ -40,7 +41,6 @@ def market_payload():
             "change": round(s["change_pct"], 2),
             "market_cap": round(s["market_cap"], 2),
             "volume": s["volume"],
-            "available": s["available"],
             "high": round(s["high"], 3),
             "low": round(s["low"], 3),
             "trades": s["trades"],
@@ -87,11 +87,16 @@ def market_payload():
     if user_id:
         user = User.query.get(user_id)
         if user:
+            daily_remaining_by_ticker = {}
+            for stock in Stock.query.all():
+                remaining, limit = daily_remaining(user.id, stock.id, settings)
+                daily_remaining_by_ticker[stock.ticker] = {"remaining": remaining, "limit": limit}
             account = {
                 "cash": round(user.cash, 2),
                 "invested": round(user.invested_value(), 2),
                 "net_worth": round(user.net_worth(), 2),
                 "return_pct": round(user.total_return(), 2),
+                "daily_remaining": daily_remaining_by_ticker,
                 "holdings": [
                     {
                         "ticker": h["ticker"],

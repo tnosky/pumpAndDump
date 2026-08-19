@@ -35,7 +35,7 @@ function updateMarketTable(stocks) {
       <td data-stock-price="${s.ticker}">${price(s.price)}</td>
       <td class="${stockClass(s.change)}">${signed(s.change)}</td>
       <td>${money(s.market_cap)}</td>
-      <td>${s.available}</td>
+      <td>${s.held}</td>
     </tr>
   `).join('');
 }
@@ -151,7 +151,6 @@ function updateStockPage(payload) {
   document.querySelectorAll('[data-live-stock="volume"]').forEach(el => el.textContent = data.volume);
   document.querySelectorAll('[data-live-stock="high"]').forEach(el => el.textContent = price(data.high));
   document.querySelectorAll('[data-live-stock="low"]').forEach(el => el.textContent = price(data.low));
-  document.querySelectorAll('[data-live-stock="available"]').forEach(el => el.textContent = data.available);
   document.querySelectorAll('[data-live-stock="holder_count"]').forEach(el => el.textContent = data.holder_count);
   document.querySelectorAll('[data-live-stock="held"]').forEach(el => el.textContent = data.held);
   document.querySelectorAll('[data-live-stock="trades"]').forEach(el => el.textContent = data.trades);
@@ -160,6 +159,12 @@ function updateStockPage(payload) {
   document.querySelectorAll('[data-live-stock="buy_shares"]').forEach(el => el.textContent = data.buy_shares);
   document.querySelectorAll('[data-live-stock="sell_shares"]').forEach(el => el.textContent = data.sell_shares);
   document.querySelectorAll('[data-live-stock="largest_holder"]').forEach(el => el.textContent = data.largest_holder ? `${data.largest_holder} (${data.largest_holder_shares})` : 'none');
+
+  const dailyInfo = payload.account && payload.account.daily_remaining ? payload.account.daily_remaining[stockTicker] : null;
+  if (dailyInfo) {
+    document.querySelectorAll('[data-live-stock="daily_remaining"]').forEach(el => el.textContent = `${dailyInfo.remaining}/${dailyInfo.limit}`);
+    document.querySelectorAll('[data-live-stock="daily_remaining_note"]').forEach(el => el.textContent = `you can buy ${dailyInfo.remaining} more share(s) of ${stockTicker} today (limit ${dailyInfo.limit}/day)`);
+  }
 
   const trades = payload.recent_trades.filter(t => t.ticker === stockTicker).slice(0, 30);
   updateStockTrades(trades);

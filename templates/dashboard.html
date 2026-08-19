@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 {% block title %}home - freshmanPumpAndDump{% endblock %}
 {% block content %}
-<div class="toolbar panel"><div><strong>market overview</strong><div class="muted">six stocks · 300 shares each · live updates</div></div><div class="status-chip {{ 'open' if market_open else 'closed' }}" data-market-status>{{ 'OPEN' if market_open else 'CLOSED' }}</div></div>
+<div class="toolbar panel"><div><strong>market overview</strong><div class="muted">six stocks · unlimited shares · live updates</div></div><div class="status-chip {{ 'open' if market_open else 'closed' }}" data-market-status>{{ 'OPEN' if market_open else 'CLOSED' }}</div></div>
 <div class="grid-3">
   <section class="panel wide">
     <div class="panel-title">market</div>
-    <table id="market-table"><thead><tr><th>ticker</th><th>name</th><th>price</th><th>change</th><th>mkt cap</th><th>available</th></tr></thead><tbody>
+    <table id="market-table"><thead><tr><th>ticker</th><th>name</th><th>price</th><th>change</th><th>mkt cap</th><th>shares held</th></tr></thead><tbody>
     {% for stock in stocks %}<tr>
       <td><a href="{{ url_for('stock_page', ticker=stock.ticker) }}">{{ stock.ticker }}</a></td>
       <td>{{ stock.name }}</td><td>${{ '%.3f'|format(stock.price) }}</td>
       <td class="{{ 'pos' if stock.price >= 0.1 else 'neg' }}">{{ '%.2f'|format((stock.price-0.1)/0.1*100) }}%</td>
-      <td>${{ '%.2f'|format(stock.market_cap()) }}</td><td>{{ stock.shares_available() }}</td>
+      <td>${{ '%.2f'|format(stock.market_cap()) }}</td><td>{{ stock.shares_held() }}</td>
     </tr>{% endfor %}
     </tbody></table>
   </section>
