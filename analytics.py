@@ -13,7 +13,7 @@ def user_realized_gain(user):
     trades = Trade.query.filter_by(user_id=user.id).order_by(Trade.created_at, Trade.id).all()
     for trade in trades:
         key = trade.stock_id
-        if trade.side in {"BUY", "IPO"}:
+        if trade.side == "BUY":
             shares_held[key] += trade.shares
             cost_basis[key] += trade.total
         else:
@@ -95,12 +95,7 @@ def portfolio_history(user):
 
     trades = Trade.query.order_by(Trade.created_at, Trade.id).all()
     for trade in trades:
-        if trade.side == "IPO":
-            cash_change = -trade.total if trade.user_id == user.id else 0.0
-            if trade.user_id == user.id:
-                positions[trade.stock_id] += trade.shares
-            prices[trade.stock_id] = trade.price
-        elif trade.side == "BUY":
+        if trade.side == "BUY":
             cash_change = -trade.total if trade.user_id == user.id else 0.0
             if trade.user_id == user.id:
                 positions[trade.stock_id] += trade.shares

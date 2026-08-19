@@ -4,35 +4,27 @@ from zoneinfo import ZoneInfo
 from flask import session
 
 from extensions import socketio
-from config import MARKET_OPEN_HOUR, MARKET_CLOSE_HOUR, MARKET_TIMEZONE, IPO_START, IPO_END
+from config import MARKET_OPEN_HOUR, MARKET_CLOSE_HOUR, MARKET_TIMEZONE
 from market import change_from_start, market_is_open
-from models import ClosedDate, IPOOrder, MarketSetting, MarketState, Stock, Trade, User
+from models import ClosedDate, MarketSetting, Stock, Trade, User
 from analytics import stock_stats, user_holdings, user_stats
 
 
 
-def market_timing(settings, state):
+def market_timing(settings):
     now = datetime.now(ZoneInfo(MARKET_TIMEZONE))
     closed = {item.day for item in ClosedDate.query.all()}
-    ipo_start = datetime.fromisoformat(IPO_START)
-    ipo_end = datetime.fromisoformat(IPO_END)
-    if state and state.phase == "IPO":
-        if now < ipo_start:
-            return {"label": "IPO", "next_change": ipo_start.isoformat(), "ipo_seconds": int((ipo_end - now).total_seconds())}
-        if now < ipo_end:
-            return {"label": "IPO", "next_change": ipo_end.isoformat(), "ipo_seconds": int((ipo_end - now).total_seconds())}
-        closed = {item.day for item in ClosedDate.query.all()}
     if not settings or not settings.market_enabled:
         return {"label": "MANUALLY CLOSED", "next_change": None}
 
-    if now.weekday() != 4 and now.date() not in closed and MARKET_OPEN_HOUR <= now.hour < MARKET_CLOSE_HOUR:
+    if now.weekday() != 6 and now.date() not in closed and MARKET_OPEN_HOUR <= now.hour < MARKET_CLOSE_HOUR:
         next_change = now.replace(hour=MARKET_CLOSE_HOUR, minute=0, second=0, microsecond=0)
         return {"label": "OPEN", "next_change": next_change.isoformat()}
 
     candidate = now.replace(hour=MARKET_OPEN_HOUR, minute=0, second=0, microsecond=0)
     if now >= candidate:
         candidate = candidate + timedelta(days=1)
-    while candidate.weekday() == 4 or candidate.date() in closed:
+    while candidate.weekday() == 6 or candidate.date() in closed:
         candidate += timedelta(days=1)
     return {"label": "CLOSED", "next_change": candidate.isoformat()}
 
@@ -114,26 +106,11 @@ def market_payload():
                 ],
             }
 
-    state = MarketState.query.first()
-    timing = market_timing(settings, state)
-    ipo_users = User.query.filter_by(is_approved=True, is_moderator=False).all()
-    ipo_submitted = sum(1 for user in ipo_users if sum((order.shares or 0) for order in user.ipo_orders) > 0)
-    ipo_demand = {}
-    for stock in Stock.query.order_by(Stock.id).all():
-        ipo_demand[stock.ticker] = sum((order.shares or 0) for order in IPOOrder.query.filter_by(stock_id=stock.id).all())
+    timing = market_timing(settings)
     return {
-        "market_open": market_is_open(settings, state),
+        "market_open": market_is_open(settings),
         "market_label": timing["label"],
-        "market_phase": state.phase if state else "OPEN",
-        "market_cash": round(state.market_cash, 2) if state else 0.0,
         "next_change": timing["next_change"],
-        "ipo_seconds": timing.get("ipo_seconds"),
-        "ipo": {
-            "participants": len(ipo_users),
-            "submitted": ipo_submitted,
-            "all_submitted": bool(ipo_users) and ipo_submitted == len(ipo_users),
-            "demand": ipo_demand,
-        },
         "stocks": stocks,
         "recent_trades": recent_trades,
         "leaderboard": leaderboard,

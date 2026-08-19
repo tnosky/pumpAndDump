@@ -17,7 +17,6 @@ class User(db.Model):
 
     holdings = db.relationship("Holding", backref="user", cascade="all, delete-orphan")
     trades = db.relationship("Trade", backref="user", cascade="all, delete-orphan")
-    ipo_orders = db.relationship("IPOOrder", backref="user", cascade="all, delete-orphan")
 
     def portfolio_value(self):
         return sum((h.shares or 0) * h.stock.price for h in self.holdings)
@@ -36,7 +35,7 @@ class User(db.Model):
 
 class Stock(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    ticker = db.Column(db.String(5), unique=True, nullable=False)
+    ticker = db.Column(db.String(3), unique=True, nullable=False)
     name = db.Column(db.String(80), nullable=False)
     price = db.Column(db.Float, default=0.100, nullable=False)
     shares_outstanding = db.Column(db.Integer, default=300, nullable=False)
@@ -45,7 +44,6 @@ class Stock(db.Model):
     holdings = db.relationship("Holding", backref="stock", cascade="all, delete-orphan")
     trades = db.relationship("Trade", backref="stock", cascade="all, delete-orphan")
     price_points = db.relationship("PricePoint", backref="stock", cascade="all, delete-orphan")
-    ipo_orders = db.relationship("IPOOrder", backref="stock", cascade="all, delete-orphan")
 
     def market_cap(self):
         return self.price * self.shares_outstanding
@@ -101,24 +99,6 @@ class MarketSetting(db.Model):
     market_enabled = db.Column(db.Boolean, default=True, nullable=False)
     note = db.Column(db.String(255), default="", nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-
-class MarketState(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    phase = db.Column(db.String(8), default="IPO", nullable=False)
-    market_cash = db.Column(db.Float, default=0.0, nullable=False)
-    ipo_completed_at = db.Column(db.DateTime, nullable=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-
-class IPOOrder(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    stock_id = db.Column(db.Integer, db.ForeignKey("stock.id"), nullable=False)
-    shares = db.Column(db.Integer, default=0, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-    __table_args__ = (db.UniqueConstraint("user_id", "stock_id", name="uq_ipo_user_stock"),)
 
 
 class ClosedDate(db.Model):

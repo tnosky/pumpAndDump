@@ -14,7 +14,6 @@
     <nav>
       {% if current_user %}
       <a href="{{ url_for('dashboard') }}">home</a>
-      {% if market_phase == 'IPO' %}<a href="{{ url_for('ipo_page') }}">ipo</a>{% endif %}
       <a href="{{ url_for('portfolio') }}">portfolio</a>
       <a href="{{ url_for('leaderboard') }}">leaderboard</a>
       {% if current_user.is_moderator %}<a href="{{ url_for('moderator') }}">moderator</a>{% endif %}
@@ -24,8 +23,8 @@
     {% if current_user %}
     <div class="market-clock">
       <span>market:</span>
-      <strong data-market-status class="{{ 'pos' if market_open else ('ipo-status' if market_phase == 'IPO' else 'neg') }}">{{ 'OPEN' if market_open else market_phase }}</strong>
-      <span data-market-countdown data-ipo-active="{{ 1 if ipo_active else 0 }}"></span>
+      <strong data-market-status class="{{ 'pos' if market_open else 'neg' }}">{{ 'OPEN' if market_open else 'CLOSED' }}</strong>
+      <span data-market-countdown></span>
     </div>
     {% endif %}
   </header>

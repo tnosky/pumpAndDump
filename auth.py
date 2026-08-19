@@ -26,7 +26,7 @@ def moderator_required(view):
         if user is None:
             return redirect(url_for("login"))
         if not user.is_moderator:
-            flash("Trent access required.", "error")
+            flash("Moderator access required.", "error")
             return redirect(url_for("dashboard"))
         return view(*args, **kwargs)
     return wrapped

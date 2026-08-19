@@ -1,10 +1,7 @@
 {% extends "base.html" %}
 {% block title %}home - freshmanPumpAndDump{% endblock %}
 {% block content %}
-<div class="toolbar panel"><div><strong>{{ 'ipo phase' if market_phase == 'IPO' else 'market overview' }}</strong><div class="muted">six stocks · 300 shares each · $30 base market cap · {{ 'IPO allocation in progress' if market_phase == 'IPO' else 'live updates' }}</div></div><div class="status-chip {{ 'open' if market_open else ('ipo' if market_phase == 'IPO' else 'closed') }}" data-market-status>{{ 'OPEN' if market_open else market_phase }}</div></div>
-{% if market_phase == 'IPO' %}
-<section class="panel ipo-banner"><div class="panel-title">initial public offering</div><div class="ipo-banner-row"><div><strong>Choose your initial share allocations before normal trading begins.</strong><div class="muted">Your requests stay private. At close, oversubscribed stocks are allocated proportionally and prices are set from demand.</div></div><a class="text-button" href="{{ url_for('ipo_page') }}">open IPO allocations</a></div><div class="ipo-progress"><span>{{ ipo.submitted }} / {{ ipo.participants }} users submitted</span><span>12 players × $15 = $180 total starting cash</span><span>6 stocks × $30 = $180 total base market cap</span><span id="ipo-countdown-label">IPO window: 2:00–6:00 PM MDT on August 16</span></div></section>
-{% endif %}
+<div class="toolbar panel"><div><strong>market overview</strong><div class="muted">six stocks · 300 shares each · live updates</div></div><div class="status-chip {{ 'open' if market_open else 'closed' }}" data-market-status>{{ 'OPEN' if market_open else 'CLOSED' }}</div></div>
 <div class="grid-3">
   <section class="panel wide">
     <div class="panel-title">market</div>
@@ -29,7 +26,7 @@
   <section class="panel">
     <div class="panel-title">recent trades</div>
     <table><thead><tr><th>user</th><th>side</th><th>shares</th><th>stock</th><th>price</th><th>total</th></tr></thead><tbody id="recent-trades-body">
-    {% for trade in recent_trades %}<tr><td>{{ trade.user.username }}</td><td class="{{ 'pos' if trade.side == 'BUY' else ('neg' if trade.side == 'SELL' else 'muted') }}">{{ trade.side }}</td><td>{{ trade.shares }}</td><td><a href="{{ url_for('stock_page', ticker=trade.stock.ticker) }}">{{ trade.stock.ticker }}</a></td><td>${{ '%.3f'|format(trade.price) }}</td><td>${{ '%.3f'|format(trade.total) }}</td></tr>{% else %}<tr><td colspan="6">no trades yet</td></tr>{% endfor %}
+    {% for trade in recent_trades %}<tr><td>{{ trade.user.username }}</td><td class="{{ 'pos' if trade.side == 'BUY' else 'neg' }}">{{ trade.side }}</td><td>{{ trade.shares }}</td><td><a href="{{ url_for('stock_page', ticker=trade.stock.ticker) }}">{{ trade.stock.ticker }}</a></td><td>${{ '%.3f'|format(trade.price) }}</td><td>${{ '%.3f'|format(trade.total) }}</td></tr>{% else %}<tr><td colspan="6">no trades yet</td></tr>{% endfor %}
     </tbody></table>
   </section>
   <section class="panel">

@@ -50,7 +50,7 @@ function updateRecentTrades(trades, targetId = 'recent-trades-body') {
   body.innerHTML = trades.map(t => `
     <tr>
       <td>${t.user}</td>
-      <td class="${t.side === 'BUY' ? 'pos' : (t.side === 'SELL' ? 'neg' : 'muted')}">${t.side}</td>
+      <td class="${t.side === 'BUY' ? 'pos' : 'neg'}">${t.side}</td>
       <td>${t.shares}</td>
       <td><a href="/stock/${t.ticker}">${t.ticker}</a></td>
       <td>${price(t.price)}</td>
@@ -110,10 +110,8 @@ function updateMarketStatus(open, label, nextChange) {
   nextMarketChange = nextChange || null;
   document.querySelectorAll('[data-market-status]').forEach(el => {
     el.textContent = label || (open ? 'OPEN' : 'CLOSED');
-    const isIpo = String(label || '').toUpperCase() === 'IPO';
     el.classList.toggle('pos', open);
-    el.classList.toggle('neg', !open && !isIpo);
-    el.classList.toggle('ipo-status', isIpo);
+    el.classList.toggle('neg', !open);
   });
   updateCountdown();
 }
