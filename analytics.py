@@ -1,7 +1,7 @@
 from collections import defaultdict
 from statistics import pstdev
 
-from config import INITIAL_GRANT_SHARES, MIN_PRICE, PRICE_STEP, STOCK_SHARES, STOCK_START_PRICE
+from config import INITIAL_GRANT_SHARES, MIN_PRICE, PRICE_STEP, STOCK_START_PRICE
 from models import Stock, Trade
 
 

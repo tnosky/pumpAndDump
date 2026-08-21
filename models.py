@@ -39,7 +39,7 @@ class Stock(db.Model):
     ticker = db.Column(db.String(3), unique=True, nullable=False)
     name = db.Column(db.String(80), nullable=False)
     price = db.Column(db.Float, default=0.100, nullable=False)
-    shares_outstanding = db.Column(db.Integer, default=300, nullable=False)
+    shares_outstanding = db.Column(db.Integer, default=300, nullable=False)  # legacy IPO baseline, no longer used by market_cap()
     created_at = db.Column(db.DateTime, default=lambda: datetime.utcnow(), nullable=False)
 
     holdings = db.relationship("Holding", backref="stock", cascade="all, delete-orphan")
@@ -47,10 +47,7 @@ class Stock(db.Model):
     price_points = db.relationship("PricePoint", backref="stock", cascade="all, delete-orphan")
 
     def market_cap(self):
-        # shares_outstanding is the original IPO baseline (300). Trading is
-        # uncapped now, so once real demand pushes the actual float past that
-        # baseline, market cap reflects the larger, real number of shares held.
-        return self.price * max(self.shares_outstanding, self.shares_held())
+        return self.price * self.shares_held()
 
     def shares_held(self):
         return sum((h.shares or 0) for h in self.holdings)

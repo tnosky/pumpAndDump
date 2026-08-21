@@ -35,7 +35,7 @@ The app uses `America/Denver` for the market clock. `tzdata` is included for Win
 ## Market rules
 
 - 6 stocks, uncapped shares (buy as many as your cash and the daily limit allow)
-- IPO price: $0.100 (market cap is based on a 300-share baseline until real demand pushes the float higher)
+- IPO price: $0.100 (market cap is price × real shares held, no artificial floor)
 - Prices display to three decimals
 - Minimum price: $0.001
 - 1-50 shares per transaction
@@ -119,3 +119,6 @@ New users are automatically granted 20 shares of each stock at IPO price ($12.00
 
 ### 7
 Added a moderator-editable daily sell limit per user/per stock (separate from the buy limit). Both the buy and sell limits/remaining are now shown live on each stock's page.
+
+### 8
+Market cap now always equals price × real shares held, with no artificial floor. Previously it used a fixed 300-share baseline (from the original IPO design) and wouldn't move until real ownership exceeded that, which looked wrong once the starter grant made real float much smaller than 300.
