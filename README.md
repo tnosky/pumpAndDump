@@ -122,3 +122,6 @@ Added a moderator-editable daily sell limit per user/per stock (separate from th
 
 ### 8
 Market cap now always equals price × real shares held, with no artificial floor. Previously it used a fixed 300-share baseline (from the original IPO design) and wouldn't move until real ownership exceeded that, which looked wrong once the starter grant made real float much smaller than 300.
+
+### 9
+Moderator can now permanently delete an approved user's account (with a confirmation prompt), which cascades to remove their holdings and trade history. The moderator's own account can't be deleted this way.

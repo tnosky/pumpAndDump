@@ -321,6 +321,17 @@ def moderator():
             db.session.add(AuditLog(actor_user_id=current_user().id, action="USER_UPDATED", details=user.username))
             db.session.commit()
             flash(f"Updated {user.username}.", "success")
+        elif action == "delete_user":
+            user = User.query.get_or_404(int(request.form["user_id"]))
+            if user.is_moderator:
+                flash("The moderator account cannot be deleted.", "error")
+                return redirect(url_for("moderator"))
+            name = user.username
+            db.session.delete(user)  # cascades to their Holding and Trade rows
+            db.session.add(AuditLog(actor_user_id=current_user().id, action="USER_DELETED", details=name))
+            db.session.commit()
+            socketio.emit("market_update", market_payload())
+            flash(f"Deleted account: {name}.", "success")
         elif action == "update_settings":
             try:
                 new_open = int(request.form.get("market_open_hour", ""))
