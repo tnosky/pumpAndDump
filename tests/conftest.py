@@ -1,139 +1,187 @@
-import importlib
+"""
+Shared pytest fixtures for the freshmanPumpAndDump test suite.
+
+Key design points:
+- Tests never touch your real market.db. We point the app at a throwaway
+  temp-file SQLite database via the DATABASE_URL env var (see app.py).
+- Every test gets a fully reset database (fresh stocks, fresh market
+  settings, no users/trades except the moderator) via the autouse
+  `clean_db` fixture, so tests never depend on execution order.
+- The moderator account credentials are fixed for the test run so tests
+  can log in as the moderator deterministically.
+"""
 import os
 import sys
-from datetime import datetime, timezone
+import tempfile
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
+from freezegun import freeze_time
 
+# --- Point the app at an isolated, throwaway database BEFORE it is imported ---
+_TEST_DB_FD, TEST_DB_PATH = tempfile.mkstemp(suffix=".db")
+os.close(_TEST_DB_FD)
+os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
+os.environ.setdefault("MODERATOR_USERNAME", "moderator")
+os.environ.setdefault("MODERATOR_PASSWORD", "modpass123")
+os.environ.setdefault("SECRET_KEY", "test-secret-key")
 
-@pytest.fixture(scope="session")
-def project(tmp_path_factory):
-    original_cwd = os.getcwd()
-    db_dir = tmp_path_factory.mktemp("fpd-test-db")
-    os.chdir(db_dir)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
+for path in (PROJECT_ROOT, TESTS_DIR):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
-    for name in ["app", "market", "models", "analytics", "auth", "realtime", "extensions"]:
-        sys.modules.pop(name, None)
+import app as app_module  # noqa: E402  (import must happen after env vars are set)
+from models import (  # noqa: E402
+    db,
+    User,
+    Stock,
+    Trade,
+    Holding,
+    PricePoint,
+    MarketSetting,
+    ClosedDate,
+    AuditLog,
+)
 
-    app_module = importlib.import_module("app")
-    app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+MODERATOR_USERNAME = os.environ["MODERATOR_USERNAME"]
+MODERATOR_PASSWORD = os.environ["MODERATOR_PASSWORD"]
 
-    yield app_module
-    os.chdir(original_cwd)
+# A fixed Wednesday afternoon (within the default 12-20 market hours, and
+# never a Sunday). Every test is frozen here by default so trading tests
+# don't randomly fail depending on what day/hour you happen to run pytest.
+# Individual tests can still nest their own freeze_time(...) to test other
+# specific dates/hours (see test_market_hours.py and test_daily_limit.py).
+DEFAULT_TEST_TIME = datetime(2026, 8, 19, 15, 0, 0, tzinfo=ZoneInfo("America/Denver"))
 
 
 @pytest.fixture(autouse=True)
-def app_context(project):
-    with project.app.app_context():
+def default_frozen_time():
+    with freeze_time(DEFAULT_TEST_TIME):
+        yield
+
+
+@pytest.fixture()
+def app():
+    app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+    yield app_module.app
+
+
+@pytest.fixture(autouse=True)
+def app_ctx(app):
+    """Push an app context for the duration of every test."""
+    with app.app_context():
         yield
 
 
 @pytest.fixture(autouse=True)
-def fixed_market_clock(monkeypatch):
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    import market
-
-    target = datetime(2026, 8, 16, 15, 0, tzinfo=ZoneInfo("America/Denver"))
-    real_datetime = market.datetime
-
-    class FrozenDateTime(real_datetime):
-        @classmethod
-        def now(cls, tz=None):
-            if tz is None:
-                return target.replace(tzinfo=None)
-            return target.astimezone(tz)
-
-    monkeypatch.setattr(market, "datetime", FrozenDateTime)
+def clean_db(app_ctx):
+    """Wipe and reseed the database before every single test."""
+    # Delete children before parents to respect foreign keys.
+    Trade.query.delete()
+    PricePoint.query.delete()
+    Holding.query.delete()
+    AuditLog.query.delete()
+    ClosedDate.query.delete()
+    User.query.filter_by(is_moderator=False).delete()
+    Stock.query.delete()
+    MarketSetting.query.delete()
+    db.session.commit()
+    app_module.seed()
     yield
 
 
-@pytest.fixture(autouse=True)
-def fresh_database(project, app_context):
-    app_module = project
-    with app_module.app.app_context():
-        app_module.db.drop_all()
-        app_module.db.create_all()
-        app_module.seed()
-
-        from models import MarketSetting, MarketState, Trade
-
-        state = MarketState.query.first()
-        settings = MarketSetting.query.first()
-        settings.market_enabled = True
-        state.phase = "IPO"
-        state.market_cash = 0.0
-        state.ipo_completed_at = None
-        app_module.db.session.commit()
+@pytest.fixture()
+def client(app):
+    return app.test_client()
 
 
-def set_market_open(monkeypatch, project, dt):
-    import market
+# --------------------------------------------------------------------------
+# Helpers used across test modules
+# --------------------------------------------------------------------------
 
-    real_datetime = market.datetime
-
-    class FrozenDateTime(real_datetime):
-        @classmethod
-        def now(cls, tz=None):
-            if tz is None:
-                return dt.replace(tzinfo=None)
-            return dt.astimezone(tz)
-
-    monkeypatch.setattr(market, "datetime", FrozenDateTime)
-    return dt
+def register(client, username, password="password123"):
+    return client.post(
+        "/register",
+        data={"username": username, "password": password},
+        follow_redirects=True,
+    )
 
 
-def set_ipo_clock(monkeypatch, project, dt):
-    return set_market_open(monkeypatch, project, dt)
+def login(client, username, password="password123"):
+    return client.post(
+        "/login",
+        data={"username": username, "password": password},
+        follow_redirects=True,
+    )
 
 
-@pytest.fixture
-def helpers(project):
-    from models import User, Stock, Holding, Trade, MarketState, MarketSetting, db
+def logout(client):
+    return client.get("/logout", follow_redirects=True)
 
-    def make_user(username, cash=15.0, approved=True, moderator=False):
-        user = User(
-            username=username,
-            password="pw",
-            is_approved=approved,
-            is_moderator=moderator,
-            starting_cash=cash,
-            cash=cash,
-        )
-        db.session.add(user)
+
+def moderator_login(client):
+    return login(client, MODERATOR_USERNAME, MODERATOR_PASSWORD)
+
+
+def approve(client, user_id, starting_cash=10):
+    return client.post(
+        "/moderator",
+        data={"action": "approve", "user_id": str(user_id), "starting_cash": str(starting_cash)},
+        follow_redirects=True,
+    )
+
+
+def register_and_approve(client, username, password="password123", starting_cash=10, cash_override=None):
+    """Register a new user, approve them as the moderator, then log them back in.
+
+    `starting_cash` must be within the moderator's $5-$20 approval bounds,
+    and determines whether the $12 starter-share grant fires (>= $12 triggers
+    it; below that skips it). If a test just wants a specific amount of
+    spending cash and doesn't care about the grant, pass `cash_override` to
+    set the user's cash directly after approval (bypassing the $5-$20 cap
+    and any grant deduction).
+    """
+    register(client, username, password)
+    user = User.query.filter_by(username=username).first()
+    moderator_login(client)
+    approve(client, user.id, starting_cash)
+    if cash_override is not None:
+        user.cash = cash_override
         db.session.commit()
-        return user
+    logout(client)
+    login(client, username, password)
+    db.session.refresh(user)
+    return user
 
-    def login(client, user):
-        client.post("/login", data={"username": user.username, "password": user.password})
 
-    def open_market(market_cash=100.0):
-        state = MarketState.query.first()
-        settings = MarketSetting.query.first()
-        state.phase = "OPEN"
-        state.market_cash = market_cash
-        settings.market_enabled = True
-        db.session.commit()
+def open_market_all_day(settings=None):
+    """Widen market hours to 0-24 so trading tests aren't hour-dependent."""
+    settings = settings or MarketSetting.query.first()
+    settings.market_enabled = True
+    settings.market_open_hour = 0
+    settings.market_close_hour = 24
+    db.session.commit()
+    return settings
 
-    def get_stock(ticker="ROB"):
-        return Stock.query.filter_by(ticker=ticker).one()
 
-    def balance_sheet():
-        users_cash = sum(u.cash for u in User.query.filter_by(is_moderator=False).all())
-        market_cash = MarketState.query.first().market_cash
-        return users_cash + market_cash
+def get_stock(ticker="ROB"):
+    return Stock.query.filter_by(ticker=ticker).first()
 
-    return {
-        "make_user": make_user,
-        "login": login,
-        "open_market": open_market,
-        "get_stock": get_stock,
-        "balance_sheet": balance_sheet,
-        "User": User,
-        "Stock": Stock,
-        "Holding": Holding,
-        "Trade": Trade,
-        "MarketState": MarketState,
-        "MarketSetting": MarketSetting,
-        "db": db,
-    }
+
+def buy(client, ticker, shares):
+    return client.post(
+        "/trade",
+        data={"ticker": ticker, "side": "BUY", "shares": str(shares)},
+        headers={"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"},
+    )
+
+
+def sell(client, ticker, shares):
+    return client.post(
+        "/trade",
+        data={"ticker": ticker, "side": "SELL", "shares": str(shares)},
+        headers={"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"},
+    )

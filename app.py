@@ -16,6 +16,8 @@ from config import (
     MARKET_OPEN_HOUR,
     MARKET_CLOSE_HOUR,
     DAILY_SHARE_LIMIT,
+    DAILY_SELL_LIMIT,
+    INITIAL_GRANT_SHARES,
 )
 from market import change_from_start, daily_remaining, execute_trade, market_is_open
 from analytics import stock_stats, user_holdings, user_realized_gain, user_stats, portfolio_history
@@ -28,7 +30,7 @@ load_dotenv()
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "freshman-pump-and-dump-dev-key")
 app.config["PERMANENT_SESSION_LIFETIME"] = 60 * 60 * 24 * 30
-app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.path.abspath('market.db')}"
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", f"sqlite:///{os.path.abspath('market.db')}")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db.init_app(app)
@@ -45,21 +47,25 @@ STOCKS = [
 
 
 def _migrate_market_setting_columns():
-    """Add new market_setting columns to an existing market.db without wiping data."""
+    """Add new market_setting/user columns to an existing market.db without wiping data."""
     from sqlalchemy import inspect, text
     inspector = inspect(db.engine)
-    if "market_setting" not in inspector.get_table_names():
-        return
-    existing = {col["name"] for col in inspector.get_columns("market_setting")}
-    additions = {
-        "market_open_hour": f"INTEGER NOT NULL DEFAULT {MARKET_OPEN_HOUR}",
-        "market_close_hour": f"INTEGER NOT NULL DEFAULT {MARKET_CLOSE_HOUR}",
-        "daily_share_limit": f"INTEGER NOT NULL DEFAULT {DAILY_SHARE_LIMIT}",
-    }
     with db.engine.begin() as conn:
-        for column, ddl in additions.items():
-            if column not in existing:
-                conn.execute(text(f"ALTER TABLE market_setting ADD COLUMN {column} {ddl}"))
+        if "market_setting" in inspector.get_table_names():
+            existing = {col["name"] for col in inspector.get_columns("market_setting")}
+            additions = {
+                "market_open_hour": f"INTEGER NOT NULL DEFAULT {MARKET_OPEN_HOUR}",
+                "market_close_hour": f"INTEGER NOT NULL DEFAULT {MARKET_CLOSE_HOUR}",
+                "daily_share_limit": f"INTEGER NOT NULL DEFAULT {DAILY_SHARE_LIMIT}",
+                "daily_sell_limit": f"INTEGER NOT NULL DEFAULT {DAILY_SELL_LIMIT}",
+            }
+            for column, ddl in additions.items():
+                if column not in existing:
+                    conn.execute(text(f"ALTER TABLE market_setting ADD COLUMN {column} {ddl}"))
+        if "user" in inspector.get_table_names():
+            existing_user_cols = {col["name"] for col in inspector.get_columns("user")}
+            if "starter_grant_cost" not in existing_user_cols:
+                conn.execute(text("ALTER TABLE user ADD COLUMN starter_grant_cost FLOAT NOT NULL DEFAULT 0.0"))
 
 
 def seed():
@@ -161,15 +167,18 @@ def stock_page(ticker):
     recent_trades = Trade.query.filter_by(stock_id=stock.id).order_by(desc(Trade.created_at)).limit(30).all()
     stats = stock_stats(stock)
     settings = MarketSetting.query.first()
-    remaining, limit = daily_remaining(current_user().id, stock.id, settings)
+    buy_remaining, buy_limit = daily_remaining(current_user().id, stock.id, settings, side="BUY")
+    sell_remaining, sell_limit = daily_remaining(current_user().id, stock.id, settings, side="SELL")
     return render_template(
         "stock.html",
         stock=stock,
         points=points,
         recent_trades=recent_trades,
         stats=stats,
-        daily_remaining_shares=remaining,
-        daily_share_limit=limit,
+        daily_buy_remaining=buy_remaining,
+        daily_buy_limit=buy_limit,
+        daily_sell_remaining=sell_remaining,
+        daily_sell_limit=sell_limit,
     )
 
 
@@ -259,9 +268,32 @@ def moderator():
                 user.is_approved = True
                 user.starting_cash = round(amount, 2)
                 user.cash = round(amount, 2)
-                db.session.add(AuditLog(actor_user_id=current_user().id, action="USER_APPROVED", details=f"{user.username}: ${amount:.2f}"))
+                grant_cost = round(INITIAL_GRANT_SHARES * STOCK_START_PRICE * len(STOCKS), 2)
+                granted = False
+                if user.cash >= grant_cost:
+                    for ticker, _ in STOCKS:
+                        stock = Stock.query.filter_by(ticker=ticker).first()
+                        holding = Holding.query.filter_by(user_id=user.id, stock_id=stock.id).first()
+                        if holding:
+                            old_value = (holding.shares or 0) * (holding.avg_cost or 0.0)
+                            holding.shares = (holding.shares or 0) + INITIAL_GRANT_SHARES
+                            holding.avg_cost = (old_value + INITIAL_GRANT_SHARES * STOCK_START_PRICE) / holding.shares
+                        else:
+                            db.session.add(Holding(
+                                user_id=user.id,
+                                stock_id=stock.id,
+                                shares=INITIAL_GRANT_SHARES,
+                                avg_cost=STOCK_START_PRICE,
+                            ))
+                    user.cash = round(user.cash - grant_cost, 2)
+                    user.starter_grant_cost = grant_cost
+                    granted = True
+                db.session.add(AuditLog(actor_user_id=current_user().id, action="USER_APPROVED", details=f"{user.username}: ${amount:.2f}" + (f", granted {INITIAL_GRANT_SHARES}/stock (${grant_cost:.2f})" if granted else "")))
                 db.session.commit()
-                flash(f"Approved {user.username} with ${amount:.2f}.", "success")
+                if granted:
+                    flash(f"Approved {user.username} with ${amount:.2f} — granted {INITIAL_GRANT_SHARES} shares of each stock (${grant_cost:.2f}), ${user.cash:.2f} cash left.", "success")
+                else:
+                    flash(f"Approved {user.username} with ${amount:.2f} cash. Not enough to cover the {INITIAL_GRANT_SHARES}-share starter grant (${grant_cost:.2f}), so no starter shares were given.", "success")
             else:
                 flash("Starting cash must be between $5 and $20.", "error")
         elif action == "reject":
@@ -293,22 +325,26 @@ def moderator():
             try:
                 new_open = int(request.form.get("market_open_hour", ""))
                 new_close = int(request.form.get("market_close_hour", ""))
-                new_limit = int(request.form.get("daily_share_limit", ""))
+                new_buy_limit = int(request.form.get("daily_share_limit", ""))
+                new_sell_limit = int(request.form.get("daily_sell_limit", ""))
             except ValueError:
                 flash("Market settings must be whole numbers.", "error")
                 return redirect(url_for("moderator"))
             if not (0 <= new_open < new_close <= 24):
                 flash("Open hour must be less than close hour, both between 0 and 24.", "error")
-            elif new_limit < 1:
-                flash("Daily share limit must be at least 1.", "error")
+            elif new_buy_limit < 1:
+                flash("Daily buy limit must be at least 1.", "error")
+            elif new_sell_limit < 1:
+                flash("Daily sell limit must be at least 1.", "error")
             else:
                 settings.market_open_hour = new_open
                 settings.market_close_hour = new_close
-                settings.daily_share_limit = new_limit
+                settings.daily_share_limit = new_buy_limit
+                settings.daily_sell_limit = new_sell_limit
                 db.session.add(AuditLog(
                     actor_user_id=current_user().id,
                     action="SETTINGS_UPDATED",
-                    details=f"hours {new_open}:00-{new_close}:00, daily limit {new_limit}",
+                    details=f"hours {new_open}:00-{new_close}:00, daily buy limit {new_buy_limit}, daily sell limit {new_sell_limit}",
                 ))
                 db.session.commit()
                 socketio.emit("market_update", market_payload())
@@ -340,7 +376,16 @@ def moderator():
     users = User.query.filter_by(is_approved=True, is_moderator=False).order_by(User.username).all()
     closed_dates = ClosedDate.query.order_by(ClosedDate.day).all()
     logs = AuditLog.query.order_by(desc(AuditLog.created_at)).limit(30).all()
-    return render_template("moderator.html", pending=pending, users=users, settings=settings, closed_dates=closed_dates, logs=logs)
+    return render_template(
+        "moderator.html",
+        pending=pending,
+        users=users,
+        settings=settings,
+        closed_dates=closed_dates,
+        logs=logs,
+        initial_grant_shares=INITIAL_GRANT_SHARES,
+        initial_grant_cost=round(INITIAL_GRANT_SHARES * STOCK_START_PRICE * len(STOCKS), 2),
+    )
 
 
 @app.route("/api/market")

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from config import MARKET_TIMEZONE, MARKET_OPEN_HOUR, MARKET_CLOSE_HOUR, MIN_PRICE, PRICE_STEP, DAILY_SHARE_LIMIT
+from config import MARKET_TIMEZONE, MARKET_OPEN_HOUR, MARKET_CLOSE_HOUR, MIN_PRICE, PRICE_STEP, DAILY_SHARE_LIMIT, DAILY_SELL_LIMIT
 from models import AuditLog, ClosedDate, Holding, PricePoint, Trade, db
 
 
@@ -13,8 +13,12 @@ def close_hour(settings):
     return settings.market_close_hour if settings and settings.market_close_hour is not None else MARKET_CLOSE_HOUR
 
 
-def daily_limit(settings):
+def buy_daily_limit(settings):
     return settings.daily_share_limit if settings and settings.daily_share_limit else DAILY_SHARE_LIMIT
+
+
+def sell_daily_limit(settings):
+    return settings.daily_sell_limit if settings and settings.daily_sell_limit else DAILY_SELL_LIMIT
 
 
 def market_is_open(settings):
@@ -37,22 +41,37 @@ def market_day_bounds(now=None):
     return start_utc, end_utc
 
 
-def shares_bought_today(user_id, stock_id):
+def shares_traded_today(user_id, stock_id, side):
     start_utc, end_utc = market_day_bounds()
     total = db.session.query(db.func.coalesce(db.func.sum(Trade.shares), 0)).filter(
         Trade.user_id == user_id,
         Trade.stock_id == stock_id,
-        Trade.side == "BUY",
+        Trade.side == side,
         Trade.created_at >= start_utc,
         Trade.created_at < end_utc,
     ).scalar()
     return total or 0
 
 
-def daily_remaining(user_id, stock_id, settings):
-    limit = daily_limit(settings)
-    bought = shares_bought_today(user_id, stock_id)
-    return max(0, limit - bought), limit
+def shares_bought_today(user_id, stock_id):
+    return shares_traded_today(user_id, stock_id, "BUY")
+
+
+def shares_sold_today(user_id, stock_id):
+    return shares_traded_today(user_id, stock_id, "SELL")
+
+
+def daily_remaining(user_id, stock_id, settings, side="BUY"):
+    """Remaining shares the user can still buy (or sell) today for this
+    stock, plus the limit that applies. Defaults to BUY for backward
+    compatibility with existing callers."""
+    if side == "SELL":
+        limit = sell_daily_limit(settings)
+        traded = shares_sold_today(user_id, stock_id)
+    else:
+        limit = buy_daily_limit(settings)
+        traded = shares_bought_today(user_id, stock_id)
+    return max(0, limit - traded), limit
 
 
 def format_money(value):
@@ -87,7 +106,7 @@ def execute_trade(user, stock, side, shares, settings):
 
     if side == "BUY":
         bought_today = shares_bought_today(user.id, stock.id)
-        limit = daily_limit(settings)
+        limit = buy_daily_limit(settings)
         if bought_today + shares > limit:
             remaining = max(0, limit - bought_today)
             return False, (
@@ -114,6 +133,14 @@ def execute_trade(user, stock, side, shares, settings):
     else:
         if holding is None or (holding.shares or 0) < shares:
             return False, "You do not own enough shares."
+        sold_today = shares_sold_today(user.id, stock.id)
+        limit = sell_daily_limit(settings)
+        if sold_today + shares > limit:
+            remaining = max(0, limit - sold_today)
+            return False, (
+                f"Daily sell limit reached for {stock.ticker}: you can sell "
+                f"{remaining} more share(s) today (limit {limit}/day)."
+            )
         total = 0.0
         for _ in range(shares):
             stock.price = max(MIN_PRICE, stock.price - PRICE_STEP)

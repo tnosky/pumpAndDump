@@ -1,209 +1,213 @@
-import pytest
+"""
+Core trading mechanics: buying, selling, unlimited share supply, pricing,
+holdings/avg-cost tracking, and input validation.
+
+All tests use open_market_all_day() so trading isn't dependent on the
+real-world clock or day of week. Market-hours-specific behavior is covered
+separately in test_market_hours.py.
+"""
+from conftest import buy, get_stock, open_market_all_day, register_and_approve, sell
+from config import MIN_PRICE, PRICE_STEP
+from models import Holding, Trade, User
 
 
-def test_buy_50_limit(project, helpers):
-    import market
+def test_buy_succeeds_and_updates_cash_and_holdings(client):
+    user = register_and_approve(client, "trader1", starting_cash=10)
+    open_market_all_day()
+    resp = buy(client, "ROB", 10)
+    data = resp.get_json()
+    assert resp.status_code == 200
+    assert data["ok"] is True
+    assert data["trade"]["shares"] == 10
+    assert data["trade"]["side"] == "BUY"
 
-    user = helpers["make_user"]("alice", cash=50)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=100)
-    settings = helpers["MarketSetting"].query.first()
-
-    ok, _ = market.execute_trade(user, stock, "BUY", 51, settings)
-    assert not ok
-
-    ok, trade = market.execute_trade(user, stock, "BUY", 50, settings)
-    assert ok
-    assert trade.shares == 50
-
-
-def test_repeated_one_share_purchases_accumulate_price(project, helpers):
-    import market
-
-    user = helpers["make_user"]("alice", cash=50)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=100)
-    settings = helpers["MarketSetting"].query.first()
-
-    for _ in range(10):
-        ok, _ = market.execute_trade(user, stock, "BUY", 1, settings)
-        assert ok
-
-    assert stock.price == pytest.approx(0.103, abs=1e-9)
+    db_user = User.query.get(user.id)
+    holding = Holding.query.filter_by(user_id=user.id, stock_id=get_stock("ROB").id).first()
+    assert db_user.cash < 20  # cash was spent
+    assert holding.shares == 10
 
 
-def test_buy_ten_matches_ten_one_share_price_move(project, helpers):
-    import market
-
-    user = helpers["make_user"]("alice", cash=50)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=100)
-    settings = helpers["MarketSetting"].query.first()
-
-    ok, trade = market.execute_trade(user, stock, "BUY", 10, settings)
-    assert ok
-    assert stock.price == pytest.approx(0.103, abs=1e-9)
-    assert trade.price == pytest.approx(0.10135, abs=1e-9)
-    assert trade.total == pytest.approx(1.0135, abs=1e-9)
+def test_buy_increases_price(client):
+    register_and_approve(client, "trader2", starting_cash=10)
+    open_market_all_day()
+    stock = get_stock("ROB")
+    price_before = stock.price
+    buy(client, "ROB", 5)
+    price_after = get_stock("ROB").price
+    assert price_after > price_before
+    # Each share nudges price up by PRICE_STEP.
+    assert round(price_after - price_before, 6) == round(PRICE_STEP * 5, 6)
 
 
-def test_sell_moves_price_down(project, helpers):
-    import market
-
-    user = helpers["make_user"]("alice", cash=50)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=100)
-    settings = helpers["MarketSetting"].query.first()
-
-    assert market.execute_trade(user, stock, "BUY", 10, settings)[0]
-    assert stock.price == pytest.approx(0.103)
-    ok, trade = market.execute_trade(user, stock, "SELL", 10, settings)
-    assert ok
-    assert stock.price == pytest.approx(0.100)
-    assert trade.total > 0
+def test_sell_decreases_price(client):
+    register_and_approve(client, "trader3", starting_cash=10)
+    open_market_all_day()
+    buy(client, "ROB", 10)
+    price_before_sell = get_stock("ROB").price
+    sell(client, "ROB", 5)
+    price_after_sell = get_stock("ROB").price
+    assert price_after_sell < price_before_sell
 
 
-def test_cannot_sell_unowned_shares(project, helpers):
-    import market
-
-    user = helpers["make_user"]("alice", cash=15)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=100)
-    settings = helpers["MarketSetting"].query.first()
-    ok, message = market.execute_trade(user, stock, "SELL", 1, settings)
-    assert not ok
-    assert "do not own enough" in message
-
-
-def test_cannot_buy_without_cash(project, helpers):
-    import market
-
-    user = helpers["make_user"]("alice", cash=0.001)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=100)
-    settings = helpers["MarketSetting"].query.first()
-    ok, message = market.execute_trade(user, stock, "BUY", 10, settings)
-    assert not ok
-    assert "need" in message.lower()
-    assert stock.price == pytest.approx(0.100)
+def test_sell_returns_cash_and_reduces_holding(client):
+    user = register_and_approve(client, "trader4", starting_cash=10)
+    open_market_all_day()
+    buy(client, "ROB", 10)
+    cash_after_buy = User.query.get(user.id).cash
+    sell(client, "ROB", 4)
+    cash_after_sell = User.query.get(user.id).cash
+    holding = Holding.query.filter_by(user_id=user.id).first()
+    assert cash_after_sell > cash_after_buy
+    assert holding.shares == 6
 
 
-def test_cannot_buy_when_no_shares_available(project, helpers):
-    import market
-
-    a = helpers["make_user"]("alice", cash=100)
-    b = helpers["make_user"]("bob", cash=100)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=1000)
-    settings = helpers["MarketSetting"].query.first()
-
-    ok, _ = market.execute_trade(a, stock, "BUY", 50, settings)
-    assert ok
-    stock.shares_outstanding = 50
-    helpers["db"].session.commit()
-
-    ok, message = market.execute_trade(b, stock, "BUY", 1, settings)
-    assert not ok
-    assert "not enough shares" in message
+def test_selling_all_shares_removes_holding_row(client):
+    user = register_and_approve(client, "trader5", starting_cash=10)
+    open_market_all_day()
+    buy(client, "ROB", 5)
+    sell(client, "ROB", 5)
+    assert Holding.query.filter_by(user_id=user.id, stock_id=get_stock("ROB").id).first() is None
 
 
-def test_market_cash_is_required_for_sell(project, helpers):
-    import market
-
-    user = helpers["make_user"]("alice", cash=50)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=0)
-    settings = helpers["MarketSetting"].query.first()
-
-    ok, _ = market.execute_trade(user, stock, "BUY", 10, settings)
-    assert ok
-
-    state = helpers["MarketState"].query.first()
-    state.market_cash = 0
-    helpers["db"].session.commit()
-
-    ok, message = market.execute_trade(user, stock, "SELL", 10, settings)
-    assert not ok
-    assert "not currently have enough cash" in message
+def test_cannot_sell_more_shares_than_owned(client):
+    user = register_and_approve(client, "trader6", starting_cash=10)
+    open_market_all_day()
+    buy(client, "ROB", 3)
+    resp = sell(client, "ROB", 10)
+    data = resp.get_json()
+    assert resp.status_code == 400
+    assert data["ok"] is False
+    assert "do not own enough shares" in data["error"].lower()
+    # Holding should be unaffected.
+    holding = Holding.query.filter_by(user_id=user.id).first()
+    assert holding.shares == 3
 
 
-def test_total_money_is_conserved_through_trades(project, helpers):
-    import market
-
-    user = helpers["make_user"]("alice", cash=15)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=10)
-    settings = helpers["MarketSetting"].query.first()
-
-    before = helpers["balance_sheet"]()
-    assert market.execute_trade(user, stock, "BUY", 10, settings)[0]
-    after_buy = helpers["balance_sheet"]()
-    assert after_buy == pytest.approx(before)
-
-    assert market.execute_trade(user, stock, "SELL", 5, settings)[0]
-    after_sell = helpers["balance_sheet"]()
-    assert after_sell == pytest.approx(before)
+def test_cannot_sell_with_no_holding(client):
+    register_and_approve(client, "trader7", starting_cash=10)
+    open_market_all_day()
+    resp = sell(client, "ROB", 1)
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert "do not own enough shares" in data["error"].lower()
 
 
-def test_invalid_trade_side_and_share_count(project, helpers):
-    import market
-
-    user = helpers["make_user"]("alice", cash=15)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=100)
-    settings = helpers["MarketSetting"].query.first()
-
-    for side in ("", "HOLD", "BUYME"):
-        ok, message = market.execute_trade(user, stock, side, 1, settings)
-        assert not ok
-        assert "invalid trade type" in message.lower()
-
-    for shares in (0, -1, 51, 100):
-        ok, message = market.execute_trade(user, stock, "BUY", shares, settings)
-        assert not ok
-        assert "1-50" in message
+def test_cannot_buy_more_than_cash_allows(client):
+    register_and_approve(client, "trader8", starting_cash=5)
+    open_market_all_day()
+    # 300+ shares at ~$0.10/share vastly exceeds $5 of cash.
+    resp = buy(client, "ROB", 50)
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert "you need" in data["error"].lower()
 
 
-def test_trade_blocked_when_market_closed(project, helpers):
-    import market
-
-    user = helpers["make_user"]("alice", cash=15)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=100)
-    settings = helpers["MarketSetting"].query.first()
-    settings.market_enabled = False
-    helpers["db"].session.commit()
-
-    ok, message = market.execute_trade(user, stock, "BUY", 1, settings)
-    assert not ok
-    assert "market is closed" in message.lower()
+def test_buy_of_zero_shares_rejected(client):
+    register_and_approve(client, "trader9", starting_cash=10)
+    open_market_all_day()
+    resp = buy(client, "ROB", 0)
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert "1-50 shares" in data["error"]
 
 
-def test_trade_blocked_during_ipo(project, helpers):
-    import market
-
-    user = helpers["make_user"]("alice", cash=15)
-    stock = helpers["get_stock"]()
-    state = helpers["MarketState"].query.first()
-    state.phase = "IPO"
-    settings = helpers["MarketSetting"].query.first()
-    helpers["db"].session.commit()
-
-    ok, message = market.execute_trade(user, stock, "BUY", 1, settings)
-    assert not ok
-    assert "IPO phase is active" in message
+def test_buy_of_negative_shares_rejected(client):
+    register_and_approve(client, "trader10", starting_cash=10)
+    open_market_all_day()
+    resp = buy(client, "ROB", -5)
+    data = resp.get_json()
+    assert data["ok"] is False
 
 
-def test_trade_is_logged_and_price_point_created(project, helpers):
-    import market
-    from models import PricePoint, Trade
+def test_buy_over_per_transaction_max_rejected(client):
+    register_and_approve(client, "trader11", starting_cash=10)
+    open_market_all_day()
+    resp = buy(client, "ROB", 51)
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert "1-50 shares" in data["error"]
 
-    user = helpers["make_user"]("alice", cash=15)
-    stock = helpers["get_stock"]()
-    helpers["open_market"](market_cash=100)
-    settings = helpers["MarketSetting"].query.first()
-    before_points = PricePoint.query.filter_by(stock_id=stock.id).count()
-    ok, trade = market.execute_trade(user, stock, "BUY", 3, settings)
-    assert ok
-    assert Trade.query.filter_by(id=trade.id).one().shares == 3
-    assert PricePoint.query.filter_by(stock_id=stock.id).count() == before_points + 1
+
+def test_unlimited_shares_can_exceed_old_300_cap(client):
+    """The old 300-shares-per-stock ceiling has been removed."""
+    user = register_and_approve(client, "trader12", starting_cash=10, cash_override=1_000_000)
+    open_market_all_day()
+    # Buy in chunks of 50 (per-transaction max) across several days to
+    # accumulate well beyond the old 300-share ceiling. Sundays are always
+    # closed, so skip over them rather than treating every calendar day as
+    # a tradable day.
+    from freezegun import freeze_time
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    day = datetime(2026, 8, 19, 15, 0, 0, tzinfo=ZoneInfo("America/Denver"))  # Wednesday
+    total_bought = 0
+    while total_bought < 400:  # 400 shares, above the old 300 cap
+        if day.weekday() != 6:
+            with freeze_time(day):
+                resp = buy(client, "ROB", 50)
+            assert resp.get_json()["ok"] is True, resp.get_json()
+            total_bought += 50
+        day = day + timedelta(days=1)
+    holding = Holding.query.filter_by(user_id=user.id).first()
+    assert holding.shares == total_bought
+    assert total_bought > 300  # exceeds the old hard cap
+
+
+def test_avg_cost_updates_across_multiple_buys(client):
+    user = register_and_approve(client, "trader13", starting_cash=10)
+    open_market_all_day()
+    buy(client, "ROB", 5)
+    holding = Holding.query.filter_by(user_id=user.id).first()
+    avg_after_first = holding.avg_cost
+    buy(client, "ROB", 5)
+    holding = Holding.query.filter_by(user_id=user.id).first()
+    avg_after_second = holding.avg_cost
+    # Price only goes up as we buy, so the average cost should rise too.
+    assert avg_after_second > avg_after_first
+    assert holding.shares == 10
+
+
+def test_price_never_drops_below_minimum(client):
+    user = register_and_approve(client, "trader14", starting_cash=10, cash_override=1_000_000)
+    open_market_all_day()
+    buy(client, "ROB", 50)
+    # Sell far more than the price step math would allow without a floor.
+    holding = Holding.query.filter_by(user_id=user.id).first()
+    sell(client, "ROB", holding.shares)
+    assert get_stock("ROB").price >= MIN_PRICE
+
+
+def test_trade_rejected_when_stock_does_not_exist(client):
+    register_and_approve(client, "trader15", starting_cash=10)
+    open_market_all_day()
+    resp = client.post(
+        "/trade",
+        data={"ticker": "ZZZ", "side": "BUY", "shares": "1"},
+        headers={"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"},
+    )
+    assert resp.status_code == 404
+
+
+def test_invalid_side_rejected(client):
+    register_and_approve(client, "trader16", starting_cash=10)
+    open_market_all_day()
+    resp = client.post(
+        "/trade",
+        data={"ticker": "ROB", "side": "HOLD", "shares": "1"},
+        headers={"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"},
+    )
+    data = resp.get_json()
+    assert data["ok"] is False
+    assert "invalid trade type" in data["error"].lower()
+
+
+def test_successful_trade_is_recorded(client):
+    user = register_and_approve(client, "trader17", starting_cash=10)
+    open_market_all_day()
+    buy(client, "ROB", 3)
+    trade = Trade.query.filter_by(user_id=user.id).first()
+    assert trade is not None
+    assert trade.side == "BUY"
+    assert trade.shares == 3
+    assert trade.stock_id == get_stock("ROB").id

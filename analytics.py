@@ -1,7 +1,7 @@
 from collections import defaultdict
 from statistics import pstdev
 
-from config import MIN_PRICE, PRICE_STEP, STOCK_SHARES, STOCK_START_PRICE
+from config import INITIAL_GRANT_SHARES, MIN_PRICE, PRICE_STEP, STOCK_SHARES, STOCK_START_PRICE
 from models import Stock, Trade
 
 
@@ -89,7 +89,13 @@ def portfolio_history(user):
     stocks = {stock.id: stock for stock in Stock.query.all()}
     prices = {stock_id: STOCK_START_PRICE for stock_id in stocks}
     positions = defaultdict(int)
-    cash = user.starting_cash
+    # Account for the starter grant (20 shares of each stock at IPO price)
+    # so the equity curve starts from the user's real initial position,
+    # not just their post-grant cash balance.
+    cash = user.starting_cash - (user.starter_grant_cost or 0.0)
+    if user.starter_grant_cost:
+        for stock_id in stocks:
+            positions[stock_id] = INITIAL_GRANT_SHARES
     points = []
 
     trades = Trade.query.order_by(Trade.created_at, Trade.id).all()
@@ -112,7 +118,7 @@ def portfolio_history(user):
         points.append({"time": trade.created_at.isoformat(), "value": round(value, 4)})
 
     if not points:
-        points = [{"time": user.created_at.isoformat(), "value": round(user.starting_cash, 4)}]
+        points = [{"time": user.created_at.isoformat(), "value": round(user.net_worth(), 4)}]
     else:
         points[-1]["value"] = round(user.net_worth(), 4)
     return points

@@ -162,8 +162,10 @@ function updateStockPage(payload) {
 
   const dailyInfo = payload.account && payload.account.daily_remaining ? payload.account.daily_remaining[stockTicker] : null;
   if (dailyInfo) {
-    document.querySelectorAll('[data-live-stock="daily_remaining"]').forEach(el => el.textContent = `${dailyInfo.remaining}/${dailyInfo.limit}`);
-    document.querySelectorAll('[data-live-stock="daily_remaining_note"]').forEach(el => el.textContent = `you can buy ${dailyInfo.remaining} more share(s) of ${stockTicker} today (limit ${dailyInfo.limit}/day)`);
+    document.querySelectorAll('[data-live-stock="daily_buy_remaining"]').forEach(el => el.textContent = `${dailyInfo.buy_remaining}/${dailyInfo.buy_limit}`);
+    document.querySelectorAll('[data-live-stock="daily_buy_remaining_note"]').forEach(el => el.textContent = `you can buy ${dailyInfo.buy_remaining} more share(s) of ${stockTicker} today (limit ${dailyInfo.buy_limit}/day)`);
+    document.querySelectorAll('[data-live-stock="daily_sell_remaining"]').forEach(el => el.textContent = `${dailyInfo.sell_remaining}/${dailyInfo.sell_limit}`);
+    document.querySelectorAll('[data-live-stock="daily_sell_remaining_note"]').forEach(el => el.textContent = `you can sell ${dailyInfo.sell_remaining} more share(s) of ${stockTicker} today (limit ${dailyInfo.sell_limit}/day)`);
   }
 
   const trades = payload.recent_trades.filter(t => t.ticker === stockTicker).slice(0, 30);

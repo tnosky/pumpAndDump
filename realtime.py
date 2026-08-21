@@ -19,7 +19,13 @@ def market_timing(settings):
 
     o_hour, c_hour = open_hour(settings), close_hour(settings)
     if now.weekday() != 6 and now.date() not in closed and o_hour <= now.hour < c_hour:
-        next_change = now.replace(hour=c_hour, minute=0, second=0, microsecond=0)
+        # c_hour can legitimately be 24 (moderator set "open all day"), and
+        # datetime.replace() only accepts hours 0-23, so treat hour 24 as
+        # midnight of the following day rather than crashing.
+        if c_hour >= 24:
+            next_change = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            next_change = now.replace(hour=c_hour, minute=0, second=0, microsecond=0)
         return {"label": "OPEN", "next_change": next_change.isoformat()}
 
     candidate = now.replace(hour=o_hour, minute=0, second=0, microsecond=0)
@@ -89,8 +95,14 @@ def market_payload():
         if user:
             daily_remaining_by_ticker = {}
             for stock in Stock.query.all():
-                remaining, limit = daily_remaining(user.id, stock.id, settings)
-                daily_remaining_by_ticker[stock.ticker] = {"remaining": remaining, "limit": limit}
+                buy_remaining, buy_limit = daily_remaining(user.id, stock.id, settings, side="BUY")
+                sell_remaining, sell_limit = daily_remaining(user.id, stock.id, settings, side="SELL")
+                daily_remaining_by_ticker[stock.ticker] = {
+                    "buy_remaining": buy_remaining,
+                    "buy_limit": buy_limit,
+                    "sell_remaining": sell_remaining,
+                    "sell_limit": sell_limit,
+                }
             account = {
                 "cash": round(user.cash, 2),
                 "invested": round(user.invested_value(), 2),

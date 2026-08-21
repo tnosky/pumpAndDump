@@ -12,8 +12,9 @@ class User(db.Model):
     is_moderator = db.Column(db.Boolean, default=False, nullable=False)
     is_approved = db.Column(db.Boolean, default=False, nullable=False)
     starting_cash = db.Column(db.Float, default=0.0, nullable=False)
+    starter_grant_cost = db.Column(db.Float, default=0.0, nullable=False)
     cash = db.Column(db.Float, default=0.0, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.utcnow(), nullable=False)
 
     holdings = db.relationship("Holding", backref="user", cascade="all, delete-orphan")
     trades = db.relationship("Trade", backref="user", cascade="all, delete-orphan")
@@ -39,7 +40,7 @@ class Stock(db.Model):
     name = db.Column(db.String(80), nullable=False)
     price = db.Column(db.Float, default=0.100, nullable=False)
     shares_outstanding = db.Column(db.Integer, default=300, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.utcnow(), nullable=False)
 
     holdings = db.relationship("Holding", backref="stock", cascade="all, delete-orphan")
     trades = db.relationship("Trade", backref="stock", cascade="all, delete-orphan")
@@ -84,14 +85,14 @@ class Trade(db.Model):
     shares = db.Column(db.Integer, nullable=False)
     price = db.Column(db.Float, nullable=False)
     total = db.Column(db.Float, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.utcnow(), nullable=False)
 
 
 class PricePoint(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     stock_id = db.Column(db.Integer, db.ForeignKey("stock.id"), nullable=False)
     price = db.Column(db.Float, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.utcnow(), nullable=False)
 
 
 class MarketSetting(db.Model):
@@ -101,7 +102,8 @@ class MarketSetting(db.Model):
     market_open_hour = db.Column(db.Integer, default=12, nullable=False)
     market_close_hour = db.Column(db.Integer, default=20, nullable=False)
     daily_share_limit = db.Column(db.Integer, default=50, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    daily_sell_limit = db.Column(db.Integer, default=50, nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow(), nullable=False)
 
 
 class ClosedDate(db.Model):
@@ -115,6 +117,6 @@ class AuditLog(db.Model):
     actor_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
     action = db.Column(db.String(120), nullable=False)
     details = db.Column(db.String(500), default="", nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.utcnow(), nullable=False)
 
     actor = db.relationship("User", foreign_keys=[actor_user_id])
