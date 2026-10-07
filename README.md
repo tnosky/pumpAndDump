@@ -1,6 +1,6 @@
 # freshmanPumpAndDump
 
-A small private stock-market game for a group of friends.
+A small private stock market game for a group of friends.
 
 ## Stack
 
@@ -52,8 +52,8 @@ The app uses `America/Denver` for the market clock. `tzdata` is included for Win
 From `/moderator`, the moderator can live-edit:
 
 - Market open/close hour
-- Daily per-user, per-stock share purchase limit
-- Daily per-user, per-stock share sell limit
+- Daily per user, per-stock share purchase limit
+- Daily per user, per-stock share sell limit
 - User approval starting cash ($5-$20), passwords, and cash balances
 - Special closed dates
 - Manually toggle the market open/closed
