@@ -1,127 +1,56 @@
-# freshmanPumpAndDump
+# Pump and Dump
 
-A small private stock market game for a group of friends.
+A private stock market for a group of friends, where the stocks are the friends.
 
-## Stack
+Everyone gets a few dollars of fake cash and trades six stocks. There's no outside market. Prices only move when people buy and sell, so the game is about who can pump a stock and get out before everyone else dumps it.
 
-- Flask
-- Flask-SocketIO
-- Flask-SQLAlchemy
-- SQLite
-- Vanilla JavaScript
-- Chart.js
+## How it works
 
-## Local setup
+1. **Join.** Register an account. The moderator approves it and sets your starting cash ($5 to $20). If that covers it, you also get 20 shares of each stock at the $0.10 IPO price.
+2. **Trade.** Buy or sell 1 to 50 shares at a time. Every share bought pushes the price up $0.0003 and every share sold pushes it down the same, so big orders move the price against you as they fill. Prices never go below $0.001.
+3. **Watch.** Prices, the ticker, and the leaderboard update live for everyone through Socket.IO. Each stock has a price chart and stats, and each player has a profile with their holdings and portfolio history.
 
-```powershell
-python -m venv .venv
-.venv\\Scripts\\activate
-python -m pip install -r requirements.txt
+**Rules.** No shorting or margin. Each player can buy and sell up to 50 shares per stock per day, tracked separately. The market is open 12 PM to 8 PM Mountain time and closed Sundays.
+
+**Moderator.** From `/moderator` the moderator approves players, sets cash and passwords, changes market hours and daily limits, adds closed days, opens or closes the market by hand, and can delete accounts.
+
+## Repo layout
+
+```
+app.py          Flask app: routes, moderator panel, seeding, DB migrations
+market.py       Trade execution, price movement, market hours, daily limits
+models.py       SQLAlchemy models (users, stocks, holdings, trades, price history)
+analytics.py    Stock stats, player stats, portfolio history
+realtime.py     Socket.IO live updates
+auth.py         Login and moderator checks
+config.py       Game constants (prices, limits, hours)
+templates/      Pages
+static/         JS, CSS
+tests/          pytest suite
+```
+
+## Usage
+
+**Run locally**
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env     # then set SECRET_KEY, MODERATOR_USERNAME, MODERATOR_PASSWORD
 python app.py
 ```
 
-Open http://127.0.0.1:5000
+Open `http://localhost:5000` and log in as the moderator to approve players. The database is a SQLite file, `market.db`. Delete it to start a fresh game.
 
-## Environment
-
-Copy `.env.example` to `.env` and set:
-
-- `SECRET_KEY`
-- `MODERATOR_USERNAME`
-- `MODERATOR_PASSWORD`
-
-The app uses `America/Denver` for the market clock. `tzdata` is included for Windows.
-
-## Market rules
-
-- 6 stocks, uncapped shares (buy as many as your cash and the daily limit allow)
-- IPO price: $0.100 (market cap is price × real shares held, no artificial floor)
-- Prices display to three decimals
-- Minimum price: $0.001
-- 1-50 shares per transaction
-- Daily limit: each user can buy up to a moderator-set number of shares per stock per day (default 50/day), and separately sell up to a moderator-set number of shares per stock per day (default 50/day). Buying and selling limits are tracked independently, so hitting one doesn't affect the other. Both are shown live on each stock's page.
-- Starter grant: when approved, a user is automatically given 20 shares of each stock, priced at the original IPO price ($0.10/share, so $12.00 total). This never moves the live stock price and isn't recorded as a trade. If the moderator's chosen starting cash is less than $12, the user just gets cash with no starter shares.
-- No shorting or margin
-- Market hours: moderator-editable (default 12:00 PM-8:00 PM, `America/Denver`)
-- Sundays closed
-- Moderator can add special closed dates
-- Price movement: $0.0003 per share of trade pressure
-
-## Moderator settings
-
-From `/moderator`, the moderator can live-edit:
-
-- Market open/close hour
-- Daily per user, per-stock share purchase limit
-- Daily per user, per-stock share sell limit
-- User approval starting cash ($5-$20), passwords, and cash balances
-- Special closed dates
-- Manually toggle the market open/closed
-
-## Running the test suite
-
-The `tests/` folder has a full pytest suite covering auth, trading, the
-daily share limit, market hours, moderator actions, and the JSON API. It
-runs against a throwaway temp-file database, so it never touches your real
-`market.db`.
+**Tests**
 
 ```bash
-pip install -r requirements-test.txt
-pytest
+pip install -r requirements-dev.txt freezegun
+python -m pytest -q
 ```
 
-Run a single file or test:
+**Deploy.** Set up for Railway with `railway.toml`, a `Procfile`, and a `/health` check. Set the three `.env` variables in Railway. Attach a persistent volume, or the database resets whenever the service is replaced.
 
-```bash
-pytest tests/test_daily_limit.py
-pytest tests/test_trading.py -k test_buy_increases_price
-```
+## Limitations
 
-See `tests/README.md` for more detail on what's covered.
-
-## Railway
-
-Set these variables in Railway:
-
-```text
-SECRET_KEY=<long random value>
-MODERATOR_USERNAME=<your moderator username>
-MODERATOR_PASSWORD=<your moderator password>
-```
-
-The project includes `Procfile`, `railway.toml`, and `/health` for deployment.
-
-For a private friend-group game, SQLite is intentionally kept simple. Railway's local filesystem should be treated as disposable storage, so use a persistent volume if you need the database to survive service replacement.
-
-## Resetting the local database
-
-Stop the app and delete `market.db` from the project folder, then restart the app.
-
-## Milestones
-
-### 1
-Core users, moderator approval, trading, portfolios, market hours, SQLite.
-
-### 2
-Socket.IO live market updates and live ticker/leaderboard/account updates.
-
-### 3
-Stock analytics, trader profiles, sortable leaderboard, portfolio history and zoomable charts.
-
-### 4
-UI polish, deployment files, health check, error pages, loading/trade states, improved moderator UX, and responsive layout.
-
-### 5
-Removed the fixed 300-share-per-stock trading cap, added a moderator-configurable daily per-user/per-stock buy limit, and made market hours moderator-editable at runtime. Added a full pytest test suite (`tests/`).
-
-### 6
-New users are automatically granted 20 shares of each stock at IPO price ($12.00 total) when approved, if their starting cash covers it. Fixed a bug where the portfolio equity-curve chart didn't account for this starter grant.
-
-### 7
-Added a moderator-editable daily sell limit per user/per stock (separate from the buy limit). Both the buy and sell limits/remaining are now shown live on each stock's page.
-
-### 8
-Market cap now always equals price × real shares held, with no artificial floor. Previously it used a fixed 300-share baseline (from the original IPO design) and wouldn't move until real ownership exceeded that, which looked wrong once the starter grant made real float much smaller than 300.
-
-### 9
-Moderator can now permanently delete an approved user's account (with a confirmation prompt), which cascades to remove their holdings and trade history. The moderator's own account can't be deleted this way.
+- SQLite and a single process. Fine for a friend group, not for a crowd.
+- Only `test_trading.py` passes right now. The other test files were written for an older IPO version of the game and need updating.
